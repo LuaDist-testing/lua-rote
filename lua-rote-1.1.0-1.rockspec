@@ -1,20 +1,20 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "lua-rote"
-version = "1.0.1-1"
+version = "1.1.0-1"
 -- LuaDist source
 source = {
-  tag = "1.0.1-1",
+  tag = "1.1.0-1",
   url = "git://github.com/LuaDist-testing/lua-rote.git"
 }
 -- Original source
 -- source = {
---     url = "https://github.com/starius/lua-rote/archive/1.0.1.tar.gz",
---     file = "lua-rote-1.0.1.tar.gz",
+--     url = "git://github.com/starius/lua-rote.git",
+--     tag = "1.1.0",
 -- }
 description = {
     summary = "Lua binding to ROTE, Terminal Emulation library",
-    homepage = "https://github.com/starius/lua-rote",
+    homepage = "https://starius.github.io/lua-rote",
     license = "LGPL 2.1",
     detailed = [[
 lua-rote is a Lua binding to ROTE, Terminal Emulation library
@@ -89,6 +89,7 @@ build = {
             libdirs = {"$(ROTE_LIBDIR)"},
             libraries = {"rote"},
         },
+        ['rote.cursesConsts'] = 'src/cursesConsts.lua',
     },
     install = {
         bin = { "demo/boxshell.lua" }
