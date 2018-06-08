@@ -1,3 +1,13 @@
+-- This file is part of lua-rote, Lua binding to ROTE
+-- Terminal Emulation library
+-- Copyright (C) 2015 Boris Nagaev
+-- See the LICENSE file for terms of use.
+
+local function sleep()
+    local duration = os.getenv('TEST_SLEEP') or 5
+    os.execute('sleep ' .. duration)
+end
+
 describe("rote.RoteTerm", function()
     it("creates RoteTerm", function()
         local rote = assert(require "rote")
@@ -49,7 +59,7 @@ describe("rote.RoteTerm", function()
         local rote = assert(require "rote")
         local rt = rote.RoteTerm(24, 80)
         rt:forkPty('echo 1234567890')
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         rt:forsakeChild()
         assert.truthy(rt:rowText(0):match("1234567890"))
@@ -74,7 +84,7 @@ describe("rote.RoteTerm", function()
         f:write("hello\nworld\ntest\n")
         f:close()
         local pid = rt:forkPty('less ' .. fname)
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         local text = rt:termText()
         assert.equal(24 * (80 + 1), #text)
@@ -174,19 +184,245 @@ describe("rote.RoteTerm", function()
         local rote = assert(require "rote")
         local rt = rote.RoteTerm(24, 80)
         rt:forkPty('ls')
-        os.execute('sleep 1')
+        sleep()
         rt:forsakeChild()
         -- TODO fix zombie
+    end)
+
+    it("does not #leak screen size to child", function()
+        local sizes_lua = [[
+curses = require 'posix.curses'
+stdscr = curses.initscr()
+win_rows, win_cols = stdscr:getmaxyx()
+curses.endwin()
+f = io.open(%q, 'w')
+f:write('win_rows=' .. win_rows ..
+        ' win_cols=' .. win_cols .. '\n')
+f:close()
+]]
+        local out_fname = os.tmpname()
+        sizes_lua = sizes_lua:format(out_fname)
+        --
+        local sizes_lua_fname = os.tmpname()
+        local f = io.open(sizes_lua_fname, 'w')
+        f:write(sizes_lua)
+        f:close()
+        --
+        local rote_lua = [[
+rote = require 'rote'
+rows = %i
+cols = %i
+rt = rote.RoteTerm(rows, cols)
+rt:forkPty('lua %s')
+os.execute('sleep 5')
+rt:update()
+rt:write('q')
+rt:update()
+rt:forsakeChild()
+]]
+        local rows = 4
+        local cols = 5
+        rote_lua = rote_lua:format(rows, cols,
+            sizes_lua_fname)
+        local rote_lua_fname = os.tmpname()
+        local f = io.open(rote_lua_fname, 'w')
+        f:write(rote_lua)
+        f:close()
+        --
+        local expected = 'win_rows=' .. rows ..
+            ' win_cols=' .. cols
+        --
+        os.execute('lua ' .. rote_lua_fname)
+        local f = io.open(out_fname, 'r')
+        local out = f:read('*a')
+        f:close()
+        assert.truthy(out:match(expected))
+        --
+        os.remove(out_fname)
+        os.execute('cat ' .. rote_lua_fname .. ' | lua -i > /dev/null 2>&1')
+        local f = io.open(out_fname, 'r')
+        local out = f:read('*a')
+        f:close()
+        assert.truthy(out:match(expected))
+        --
+        os.remove(out_fname)
+        os.remove(sizes_lua_fname)
+        os.remove(rote_lua_fname)
     end)
 
     it("gets updates from child", function()
         local rote = assert(require "rote")
         local rt = rote.RoteTerm(24, 80)
         rt:forkPty('ls -a')
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         rt:forsakeChild()
         assert.not_equal(' ', rt:cellChar(0, 0))
+    end)
+
+    local print_AB_then_CD = [[
+curses = require 'posix.curses'
+stdscr = curses.initscr()
+curses.echo(false)
+curses.start_color()
+curses.raw(true)
+curses.curs_set(0)
+stdscr:nodelay(false)
+stdscr:keypad(true)
+--
+stdscr:move(0, 0)
+stdscr:addch(string.byte('A'))
+stdscr:move(0, 1)
+stdscr:addch(string.byte('B'))
+stdscr:refresh()
+--
+stdscr:getch()
+--
+stdscr:move(0, 0)
+stdscr:addch(string.byte('C'))
+stdscr:move(0, 1)
+stdscr:addch(string.byte('D'))
+stdscr:refresh()
+--
+stdscr:getch()
+--
+curses.endwin()
+]]
+
+    pending("reads output from #1x2 window",
+    function()
+        --
+        local app_lua_fname = os.tmpname()
+        local f = io.open(app_lua_fname, 'w')
+        f:write(print_AB_then_CD)
+        f:close()
+        --
+        local rote = require 'rote'
+        rt = rote.RoteTerm(1, 2)
+        local cmd = 'lua %s'
+        cmd = cmd:format(app_lua_fname)
+        rt:forkPty(cmd)
+        --
+        sleep()
+        rt:update()
+        assert.equal('AB', rt:rowText(0))
+        --
+        rt:write(' ')
+        sleep()
+        rt:update()
+        -- This assert fails VVVV (rowText = 'D ')
+        assert.equal('CD', rt:rowText(0))
+        --
+        rt:write(' ')
+        rt:update()
+        rt:forsakeChild()
+        --
+        os.remove(app_lua_fname)
+    end)
+
+    it("reads well from large window",
+    function()
+        --
+        local app_lua_fname = os.tmpname()
+        local f = io.open(app_lua_fname, 'w')
+        f:write(print_AB_then_CD)
+        f:close()
+        --
+        local rote = require 'rote'
+        rt = rote.RoteTerm(24, 80)
+        local cmd = 'lua %s'
+        cmd = cmd:format(app_lua_fname)
+        rt:forkPty(cmd)
+        --
+        sleep()
+        rt:update()
+        assert.truthy(rt:rowText(0):match('AB'))
+        --
+        rt:write(' ')
+        sleep()
+        rt:update()
+        assert.truthy(rt:rowText(0):match('CD'))
+        --
+        rt:write(' ')
+        rt:update()
+        rt:forsakeChild()
+        --
+        os.remove(app_lua_fname)
+    end)
+
+    it("reads cell where #background=foreground from child",
+    function()
+        local app_lua = [[
+curses = require 'posix.curses'
+stdscr = curses.initscr()
+curses.echo(false)
+curses.start_color()
+curses.raw(true)
+curses.curs_set(0)
+stdscr:nodelay(false)
+stdscr:keypad(true)
+--
+local function makePair(foreground, background)
+    return background * 8 + 7 - foreground
+end
+--
+for foreground = 0, 7 do
+    for background = 0, 7 do
+        if foreground ~= 7 or background ~= 0 then
+            local pair = makePair(foreground, background)
+            curses.init_pair(pair, foreground, background)
+        end
+    end
+end
+--
+stdscr:move(0, 0)
+stdscr:attrset(curses.color_pair(makePair(0, 0)))
+stdscr:addch(string.byte('A'))
+stdscr:move(0, 1)
+stdscr:attrset(curses.color_pair(makePair(0, 7)))
+stdscr:addch(string.byte('B'))
+stdscr:refresh()
+--
+stdscr:getch()
+--
+stdscr:move(0, 0)
+stdscr:attrset(curses.color_pair(makePair(0, 0)))
+stdscr:addch(string.byte('C'))
+stdscr:move(0, 1)
+stdscr:attrset(curses.color_pair(makePair(0, 7)))
+stdscr:addch(string.byte('D'))
+stdscr:refresh()
+--
+stdscr:getch()
+--
+curses.endwin()
+]]
+        --
+        local app_lua_fname = os.tmpname()
+        local f = io.open(app_lua_fname, 'w')
+        f:write(app_lua)
+        f:close()
+        --
+        local rote = require 'rote'
+        rt = rote.RoteTerm(24, 80)
+        local cmd = 'lua %s'
+        cmd = cmd:format(app_lua_fname)
+        rt:forkPty(cmd)
+        --
+        sleep()
+        rt:update()
+        assert.truthy(rt:rowText(0):match('AB'))
+        --
+        rt:write(' ')
+        sleep()
+        rt:update()
+        assert.truthy(rt:rowText(0):match('CD'))
+        --
+        rt:write(' ')
+        rt:update()
+        rt:forsakeChild()
+        --
+        os.remove(app_lua_fname)
     end)
 
     it("restores from snapshot", function()
@@ -222,7 +458,7 @@ describe("rote.RoteTerm", function()
         local wait = assert(require "posix.sys.wait")
         local rt = rote.RoteTerm(3, 20)
         local pid = rt:forkPty('vi ' .. filename)
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         rt:write('i' .. text .. esc .. ':wq')
         rt:keyPress(string.byte(enter)) -- test keyPress()
@@ -252,20 +488,20 @@ describe("rote.RoteTerm", function()
         local rote = assert(require "rote")
         local rt = rote.RoteTerm(3, 20)
         rt:forkPty('less ' .. filename)
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         assert.truthy(rt:termText():match('1'))
         assert.truthy(rt:termText():match('2'))
         --
         rt:write(down)
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         assert.falsy(rt:termText():match('1'))
         assert.truthy(rt:termText():match('2'))
         assert.truthy(rt:termText():match('3'))
         --
         rt:write(down .. down)
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         assert.falsy(rt:termText():match('1'))
         assert.falsy(rt:termText():match('2'))
@@ -274,7 +510,7 @@ describe("rote.RoteTerm", function()
         assert.truthy(rt:termText():match('5'))
         --
         rt:write(right .. right)
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         assert.falsy(rt:termText():match('1'))
         assert.falsy(rt:termText():match('2'))
@@ -283,7 +519,7 @@ describe("rote.RoteTerm", function()
         assert.falsy(rt:termText():match('5'))
         --
         rt:write(up .. up .. up .. left .. left)
-        os.execute('sleep 1')
+        sleep()
         rt:update()
         assert.truthy(rt:termText():match('1'))
         assert.truthy(rt:termText():match('2'))

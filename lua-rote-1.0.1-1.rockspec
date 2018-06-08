@@ -1,8 +1,17 @@
+-- This file was automatically generated for the LuaDist project.
+
 package = "lua-rote"
-version = "dev-1"
+version = "1.0.1-1"
+-- LuaDist source
 source = {
-    url = "git://github.com/starius/lua-rote.git"
+  tag = "1.0.1-1",
+  url = "git://github.com/LuaDist-testing/lua-rote.git"
 }
+-- Original source
+-- source = {
+--     url = "https://github.com/starius/lua-rote/archive/1.0.1.tar.gz",
+--     file = "lua-rote-1.0.1.tar.gz",
+-- }
 description = {
     summary = "Lua binding to ROTE, Terminal Emulation library",
     homepage = "https://github.com/starius/lua-rote",

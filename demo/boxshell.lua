@@ -1,5 +1,13 @@
 #!/usr/bin/env lua
 
+-- This file is part of lua-rote, Lua binding to ROTE
+-- Terminal Emulation library
+-- Copyright (C) 2015 Boris Nagaev
+-- See the LICENSE file for terms of use.
+
+-- ROTE is a simple C library for VT102 terminal emulation.
+-- See http://rote.sourceforge.net/
+
 -- Just a simple example program that creates a terminal
 -- in a frame and lets the user interact with it.
 
@@ -8,6 +16,7 @@
 local curses = require 'posix.curses'
 local signal = require 'posix.signal'
 local rote = require 'rote'
+local name2color = rote.name2color
 
 local getout = false
 
@@ -24,18 +33,25 @@ curses.halfdelay(tenths_of_second) -- halfdelay mode
 stdscr:keypad(true) -- necessary to use rt:keyPress()
 local screen_h, screen_w = stdscr:getmaxyx()
 
+local function makePair(foreground, background)
+    return background * 8 + 7 - foreground
+end
+
 -- initialize the color pairs the way rt:draw() expects it
 for foreground = 0, 7 do
     for background = 0, 7 do
         if foreground ~= 7 or background ~= 0 then
-            local pair = background * 8 + 7 - foreground
+            local pair = makePair(foreground, background)
             curses.init_pair(pair, foreground, background)
         end
     end
 end
 
 -- paint the screen blue
-stdscr:attrset(curses.color_pair(32))
+local background = name2color.blue
+local foreground = name2color.white
+local pair = makePair(foreground, background)
+stdscr:attrset(curses.color_pair(pair))
 for i = 0, screen_h - 1 do
     for j = 0, screen_w - 1 do
         stdscr:addch(string.byte(' '))
@@ -46,7 +62,8 @@ stdscr:refresh()
 -- create a window with a frame
 local term_win = curses.newwin(22, 72, 1, 4)
 -- black over white
-term_win:attrset(curses.color_pair(7 * 8 + 7 - 0))
+local pair = makePair(name2color.black, name2color.white)
+term_win:attrset(curses.color_pair(pair))
 term_win:border(0, 0, 0, 0, 0, 0, 0, 0)
 term_win:mvaddstr(0, 27, " Term In a Box ")
 term_win:refresh()
